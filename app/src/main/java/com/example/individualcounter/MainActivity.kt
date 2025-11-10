@@ -1,5 +1,6 @@
 package com.example.individualcounter
 
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -8,26 +9,28 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.random.Random
 
-data class BatchEntry(val timestamp: String, val data: List<Int>)
+
+data class BatchEntry(val timestamp: String, val data: MutableList<Int>)
+
 
 class IndividualCounterActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,260 +38,218 @@ class IndividualCounterActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             Surface(modifier = Modifier.fillMaxSize()) {
-                IndividualCounterScreen()
+                DynamicColumnCounterScreen()
             }
         }
     }
 }
 
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun IndividualCounterScreen() {
+fun DynamicColumnCounterScreen() {
     val context = LocalContext.current
 
-    // Default 5 columns
-    var headers by remember { mutableStateOf(listOf("Woman", "Man", "Child", "Elderly", "Disabled")) }
 
+    var headers by remember { mutableStateOf(listOf("Women", "Men", "Elderly")) }
     val batches = remember { mutableStateListOf<BatchEntry>() }
 
-    var showExportDialog by remember { mutableStateOf(false) }
-    var showHeaderDialog by remember { mutableStateOf(false) }
 
-    // Simulate incoming batches
+    // Simulate data every 5 seconds
     LaunchedEffect(Unit) {
         while (true) {
             delay(5000)
-            val simulatedData = List(headers.size) { (0..1).random() }
+            val simulatedData = List(headers.size) { if (Random.nextBoolean()) 1 else 0 }
             val timestamp = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-            batches.add(BatchEntry(timestamp, simulatedData))
+            batches.add(BatchEntry(timestamp, simulatedData.toMutableList()))
         }
     }
 
-    val totals = headers.mapIndexed { index, _ -> batches.sumOf { it.data[index] } }
+
+    val totals = headers.indices.map { col -> batches.sumOf { it.data[col] } }
+    var expanded by remember { mutableStateOf(false) }
+
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(WindowInsets.systemBars.asPaddingValues())
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        Text(
-            "Simulated Bluetooth Counter",
-            style = MaterialTheme.typography.headlineSmall
-        )
+        Text("Dynamic Entry Logger", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(16.dp))
 
-        // Scrollable Table
-        Box(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            Column {
-                // Header row
-                Row(
-                    modifier = Modifier
-                        .background(Color.Gray)
-                        .padding(8.dp)
-                ) {
-                    headers.forEach { header ->
-                        Text(
-                            header,
-                            modifier = Modifier.width(100.dp).padding(4.dp),
-                            textAlign = TextAlign.Center,
-                            color = Color.White
+
+        val horizontalScroll = rememberScrollState()
+        Box(modifier = Modifier.horizontalScroll(horizontalScroll)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+
+
+                // Editable Header Row
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Time", modifier = Modifier.width(100.dp))
+                    headers.forEachIndexed { index, header ->
+                        var editingText by remember(header) { mutableStateOf(header) }
+
+
+                        BasicTextField(
+                            value = editingText,
+                            onValueChange = {
+                                editingText = it
+                                headers = headers.toMutableList().apply { set(index, it) }
+                            },
+                            textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
+                            modifier = Modifier
+                                .width(100.dp)
+                                .padding(4.dp)
                         )
                     }
-                    Text(
-                        "Timestamp",
-                        modifier = Modifier.width(150.dp).padding(4.dp),
-                        textAlign = TextAlign.Center,
-                        color = Color.White
-                    )
                 }
 
-                // Data rows
+
+                HorizontalDivider()
+
+
+                // Data Rows
                 batches.forEach { entry ->
-                    Row(
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        tonalElevation = 3.dp,
+                        shadowElevation = 2.dp,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                     ) {
-                        entry.data.forEach { value ->
-                            Text(
-                                value.toString(),
-                                modifier = Modifier.width(100.dp).padding(4.dp),
-                                textAlign = TextAlign.Center
-                            )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.padding(8.dp)
+                        ) {
+                            Text(entry.timestamp, modifier = Modifier.width(100.dp))
+                            entry.data.forEach { value ->
+                                Text(value.toString(), modifier = Modifier.width(100.dp))
+                            }
                         }
-                        Text(
-                            entry.timestamp,
-                            modifier = Modifier.width(150.dp).padding(4.dp),
-                            textAlign = TextAlign.Center
+                    }
+                }
+
+
+                HorizontalDivider()
+            }
+        }
+
+
+        Spacer(Modifier.height(16.dp))
+
+
+        // Totals Row
+        Text("Totals:", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            headers.forEachIndexed { index, header -> Text("$header: ${totals[index]}") }
+        }
+
+
+        Spacer(Modifier.height(24.dp))
+
+
+        // Column Controls
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Button(onClick = {
+                if (headers.size < 5) {
+                    headers = headers + "New Column"
+                    batches.forEach { it.data.add(0) }
+                } else {
+                    Toast.makeText(context, "Maximum of 5 columns reached", Toast.LENGTH_SHORT).show()
+                }
+            }) { Text("Add Column") }
+
+
+            Box {
+                Button(onClick = { expanded = true }) { Text("Remove Column") }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    headers.forEach { header ->
+                        DropdownMenuItem(
+                            text = { Text(header) },
+                            onClick = {
+                                expanded = false
+                                val index = headers.indexOf(header)
+                                if (index != -1) {
+                                    headers = headers.filterIndexed { i, _ -> i != index }
+                                    batches.forEach { it.data.removeAt(index) }
+                                }
+                            }
                         )
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(24.dp))
-        HorizontalDivider()
+
         Spacer(Modifier.height(16.dp))
 
-        Text("Totals:", style = MaterialTheme.typography.titleMedium)
-        headers.forEachIndexed { i, h ->
-            Text("$h: ${totals[i]}")
-        }
 
-        Spacer(Modifier.height(24.dp))
-        HorizontalDivider()
-        Spacer(Modifier.height(24.dp))
-
-        // Top button row (edit + undo)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            Button(onClick = { showHeaderDialog = true }) {
-                Text("Edit Headers")
-            }
-
+        // Undo + Save / Share Buttons
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Button(
                 onClick = { if (batches.isNotEmpty()) batches.removeAt(batches.lastIndex) },
                 enabled = batches.isNotEmpty()
-            ) {
-                Text("Undo Last Batch")
-            }
+            ) { Text("Undo Last Batch") }
         }
+
 
         Spacer(Modifier.height(16.dp))
 
-        // Second line for Export CSV
-        Button(
-            onClick = { showExportDialog = true },
-            enabled = batches.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Export CSV")
-        }
 
-        // Edit Header Dialog
-        if (showHeaderDialog) {
-            EditHeadersDialog(
-                headers = headers,
-                onDismiss = { showHeaderDialog = false },
-                onSave = { newHeaders ->
-                    headers = newHeaders
-                    showHeaderDialog = false
-                }
-            )
-        }
-
-        // Export Dialog
-        if (showExportDialog) {
-            AlertDialog(
-                onDismissRequest = { showExportDialog = false },
-                title = { Text("Export CSV") },
-                text = { Text("Choose how you want to export the CSV:") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val csvData = batchesToCsv(headers, batches)
-                        exportCsvToDevice(
-                            context,
-                            "batches_${System.currentTimeMillis()}.csv",
-                            csvData
-                        )
-                        showExportDialog = false
-                    }) { Text("Save to Device") }
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Button(
+                onClick = {
+                    val csv = batchesToCsv(batches, headers)
+                    exportCsvToDevice(context, "batches_${System.currentTimeMillis()}.csv", csv)
                 },
-                dismissButton = {
-                    TextButton(onClick = {
-                        exportCsvViaShare(context, headers, batches)
-                        showExportDialog = false
-                    }) { Text("Share CSV") }
-                }
-            )
+                enabled = batches.isNotEmpty()
+            ) { Text("Save CSV") }
+
+
+            Button(
+                onClick = { exportCsvViaShare(context, batches, headers) },
+                enabled = batches.isNotEmpty()
+            ) { Text("Share CSV") }
         }
     }
 }
 
-@Composable
-fun EditHeadersDialog(
-    headers: List<String>,
-    onDismiss: () -> Unit,
-    onSave: (List<String>) -> Unit
-) {
-    var tempHeaders by remember { mutableStateOf(headers) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Edit Column Headers") },
-        confirmButton = {
-            Button(onClick = { onSave(tempHeaders) }) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            Button(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
-        text = {
-            Column {
-                tempHeaders.forEachIndexed { index, header ->
-                    OutlinedTextField(
-                        value = header,
-                        onValueChange = { newValue ->
-                            tempHeaders = tempHeaders.toMutableList().apply { this[index] = newValue }
-                        },
-                        label = { Text("Header ${index + 1}") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                    )
-                }
-            }
-        }
-    )
-}
+// --- CSV and File Export Functions ---
 
-// Convert batches to CSV
-fun batchesToCsv(headers: List<String>, batches: List<BatchEntry>): String {
-    val headerRow = headers.joinToString(",") + ",Timestamp"
-    val rows = batches.joinToString("\n") { entry ->
-        entry.data.joinToString(",") + ",${entry.timestamp}"
-    }
+
+fun batchesToCsv(batches: List<BatchEntry>, headers: List<String>): String {
+    val headerRow = "Timestamp," + headers.joinToString(",")
+    val rows = batches.joinToString("\n") { "${it.timestamp},${it.data.joinToString(",")}" }
     return "$headerRow\n$rows"
 }
 
-// Save CSV to device
-fun exportCsvToDevice(context: Context, fileName: String, data: String): String {
-    val fileDir = context.getExternalFilesDir(null)
-    val file = File(fileDir, fileName)
 
-    return try {
+fun exportCsvToDevice(context: Context, fileName: String, data: String) {
+    try {
+        val file = File(context.getExternalFilesDir(null), fileName)
         file.writeText(data)
         Toast.makeText(context, "CSV saved to: ${file.absolutePath}", Toast.LENGTH_LONG).show()
-        file.absolutePath
     } catch (e: Exception) {
-        e.printStackTrace()
         Toast.makeText(context, "Error saving CSV: ${e.message}", Toast.LENGTH_LONG).show()
-        ""
     }
 }
 
-// Share CSV via FileProvider
-fun exportCsvViaShare(context: Context, headers: List<String>, batches: List<BatchEntry>) {
-    val csv = batchesToCsv(headers, batches)
+
+fun exportCsvViaShare(context: Context, batches: List<BatchEntry>, headers: List<String>) {
+    val csv = batchesToCsv(batches, headers)
     val file = File(context.cacheDir, "batches.csv")
     file.writeText(csv)
-    val uri: Uri = FileProvider.getUriForFile(
-        context,
-        "${context.packageName}.provider",
-        file
-    )
-
+    val uri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
     val shareIntent = Intent(Intent.ACTION_SEND).apply {
         type = "text/csv"
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-
     context.startActivity(Intent.createChooser(shareIntent, "Share Batches CSV"))
 }
