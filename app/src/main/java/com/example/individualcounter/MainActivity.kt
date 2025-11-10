@@ -1,6 +1,6 @@
 package com.example.individualcounter
 
-
+// --- Android imports ---
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -28,48 +28,57 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.random.Random
 
-
+// --- Data model representing a single batch (row) of entries ---
 data class BatchEntry(val timestamp: String, val data: MutableList<Int>)
 
-
+// --- Main Activity for the app ---
 class IndividualCounterActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge() // Makes UI draw behind system bars (modern look)
         setContent {
             Surface(modifier = Modifier.fillMaxSize()) {
-                DynamicColumnCounterScreen()
+                DynamicColumnCounterScreen() // Calls our main screen composable
             }
         }
     }
 }
 
-
+// --- Main UI composable ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DynamicColumnCounterScreen() {
     val context = LocalContext.current
 
-
+    // Default headers for each category/column
     var headers by remember { mutableStateOf(listOf("Women", "Men", "Elderly")) }
+
+    // Holds all batch entries logged
     val batches = remember { mutableStateListOf<BatchEntry>() }
 
-
-    // Simulate data every 5 seconds
+    // --- Simulated data generation loop ---
+    // Every 5 seconds, generate a random batch (like receiving CSV data)
     LaunchedEffect(Unit) {
         while (true) {
             delay(5000)
+            // Randomly generate 1s or 0s for each header column
             val simulatedData = List(headers.size) { if (Random.nextBoolean()) 1 else 0 }
+
+            // Timestamp when this batch is created
             val timestamp = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+
+            // Add new entry to the batches list
             batches.add(BatchEntry(timestamp, simulatedData.toMutableList()))
         }
     }
 
-
+    // Calculate total counts per column
     val totals = headers.indices.map { col -> batches.sumOf { it.data[col] } }
+
+    // Used to toggle dropdown for "Remove Column"
     var expanded by remember { mutableStateOf(false) }
 
-
+    // --- Layout starts here ---
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -80,19 +89,18 @@ fun DynamicColumnCounterScreen() {
         Text("Dynamic Entry Logger", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(16.dp))
 
-
+        // Enables horizontal scrolling when many columns exist
         val horizontalScroll = rememberScrollState()
         Box(modifier = Modifier.horizontalScroll(horizontalScroll)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 
-
-                // Editable Header Row
+                // --- Editable Header Row ---
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("Time", modifier = Modifier.width(100.dp))
                     headers.forEachIndexed { index, header ->
                         var editingText by remember(header) { mutableStateOf(header) }
 
-
+                        // Editable header name input
                         BasicTextField(
                             value = editingText,
                             onValueChange = {
@@ -107,11 +115,9 @@ fun DynamicColumnCounterScreen() {
                     }
                 }
 
-
                 HorizontalDivider()
 
-
-                // Data Rows
+                // --- Data Rows: display each batch ---
                 batches.forEach { entry ->
                     Surface(
                         shape = RoundedCornerShape(16.dp),
@@ -126,7 +132,10 @@ fun DynamicColumnCounterScreen() {
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             modifier = Modifier.padding(8.dp)
                         ) {
+                            // Timestamp column
                             Text(entry.timestamp, modifier = Modifier.width(100.dp))
+
+                            // Display each column value (1 or 0)
                             entry.data.forEach { value ->
                                 Text(value.toString(), modifier = Modifier.width(100.dp))
                             }
@@ -134,27 +143,23 @@ fun DynamicColumnCounterScreen() {
                     }
                 }
 
-
                 HorizontalDivider()
             }
         }
 
-
         Spacer(Modifier.height(16.dp))
 
-
-        // Totals Row
+        // --- Totals row at the bottom ---
         Text("Totals:", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             headers.forEachIndexed { index, header -> Text("$header: ${totals[index]}") }
         }
 
-
         Spacer(Modifier.height(24.dp))
 
-
-        // Column Controls
+        // --- Add/Remove Column controls ---
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            // Add a new column (up to 5)
             Button(onClick = {
                 if (headers.size < 5) {
                     headers = headers + "New Column"
@@ -164,7 +169,7 @@ fun DynamicColumnCounterScreen() {
                 }
             }) { Text("Add Column") }
 
-
+            // Dropdown for removing columns
             Box {
                 Button(onClick = { expanded = true }) { Text("Remove Column") }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -185,11 +190,9 @@ fun DynamicColumnCounterScreen() {
             }
         }
 
-
         Spacer(Modifier.height(16.dp))
 
-
-        // Undo + Save / Share Buttons
+        // --- Undo Button: removes last batch ---
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Button(
                 onClick = { if (batches.isNotEmpty()) batches.removeAt(batches.lastIndex) },
@@ -197,11 +200,11 @@ fun DynamicColumnCounterScreen() {
             ) { Text("Undo Last Batch") }
         }
 
-
         Spacer(Modifier.height(16.dp))
 
-
+        // --- Save + Share CSV Buttons ---
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            // Save to device storage
             Button(
                 onClick = {
                     val csv = batchesToCsv(batches, headers)
@@ -210,7 +213,7 @@ fun DynamicColumnCounterScreen() {
                 enabled = batches.isNotEmpty()
             ) { Text("Save CSV") }
 
-
+            // Share CSV via external apps (Gmail, Drive, etc.)
             Button(
                 onClick = { exportCsvViaShare(context, batches, headers) },
                 enabled = batches.isNotEmpty()
@@ -219,17 +222,16 @@ fun DynamicColumnCounterScreen() {
     }
 }
 
+// --- Helper functions for CSV export ---
 
-// --- CSV and File Export Functions ---
-
-
+// Converts all batches into CSV string format
 fun batchesToCsv(batches: List<BatchEntry>, headers: List<String>): String {
     val headerRow = "Timestamp," + headers.joinToString(",")
     val rows = batches.joinToString("\n") { "${it.timestamp},${it.data.joinToString(",")}" }
     return "$headerRow\n$rows"
 }
 
-
+// Saves CSV file to external storage
 fun exportCsvToDevice(context: Context, fileName: String, data: String) {
     try {
         val file = File(context.getExternalFilesDir(null), fileName)
@@ -240,16 +242,19 @@ fun exportCsvToDevice(context: Context, fileName: String, data: String) {
     }
 }
 
-
+// Shares CSV file via Android's share intent
 fun exportCsvViaShare(context: Context, batches: List<BatchEntry>, headers: List<String>) {
     val csv = batchesToCsv(batches, headers)
     val file = File(context.cacheDir, "batches.csv")
     file.writeText(csv)
+
     val uri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+
     val shareIntent = Intent(Intent.ACTION_SEND).apply {
         type = "text/csv"
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
+
     context.startActivity(Intent.createChooser(shareIntent, "Share Batches CSV"))
 }
