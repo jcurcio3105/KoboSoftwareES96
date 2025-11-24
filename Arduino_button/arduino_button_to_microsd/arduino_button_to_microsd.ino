@@ -1,6 +1,8 @@
 #include <SPI.h>
 #include <SD.h>
 
+
+
 // === USER CONFIG ===
 const uint8_t DATA_BTN_PINS[4] = {2, 3, 4, 5}; // data buttons
 const uint8_t TRIGGER_PIN      = 6;            // trigger button
@@ -128,4 +130,5 @@ void loop() {
     resetRow();
   }
   lastTriggerDebounced = trigDeb;
+
 }
