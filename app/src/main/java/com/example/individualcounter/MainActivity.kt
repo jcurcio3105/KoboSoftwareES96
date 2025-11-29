@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -45,23 +46,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun hasBlePermissions(context: Context): Boolean {
+    fun hasBlePermissions(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.BLUETOOTH_SCAN
+            ) == PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.BLUETOOTH_CONNECT
+                    ) == PackageManager.PERMISSION_GRANTED
         } else {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
         }
     }
 
-    private fun requestBlePermissions() {
+    fun requestBlePermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             requestPermissions(
-                arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT),
+                arrayOf(
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ),
                 101
             )
         } else {
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 101)
+            requestPermissions(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                101
+            )
         }
     }
 }
@@ -69,14 +85,29 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun DynamicColumnCounterScreen(bleManager: BLEManager) {
     val context = LocalContext.current
-    var headers by remember { mutableStateOf(listOf("Women", "Men", "Elderly")) }
+
+    // Observe BLE connection state
+    val connectionState by bleManager.connectionState.collectAsState()
+
+    // 5 data columns
+    var headers by remember {
+        mutableStateOf(listOf("Col1", "Col2", "Col3", "Col4", "Col5"))
+    }
     val batches = remember { mutableStateListOf<BatchEntry>() }
     var showScanDialog by remember { mutableStateOf(false) }
 
     // Collect BLE data
     LaunchedEffect(Unit) {
         bleManager.incomingBatch.collectLatest { batch ->
+            Log.d("UI", "Received batch in UI: size=${batch.size}")
             batches.addAll(batch)
+        }
+    }
+
+    // Show a Toast when connected
+    LaunchedEffect(connectionState) {
+        if (connectionState == ConnectionState.CONNECTED) {
+            Toast.makeText(context, "Bluetooth connected", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -86,9 +117,17 @@ fun DynamicColumnCounterScreen(bleManager: BLEManager) {
                 0 -> entry.c1
                 1 -> entry.c2
                 2 -> entry.c3
+                3 -> entry.c4
+                4 -> entry.c5
                 else -> 0
             }
         }
+    }
+
+    val connectionText = when (connectionState) {
+        ConnectionState.CONNECTED -> "Connected"
+        ConnectionState.CONNECTING -> "Connecting..."
+        ConnectionState.DISCONNECTED -> "Disconnected"
     }
 
     Column(
@@ -102,14 +141,21 @@ fun DynamicColumnCounterScreen(bleManager: BLEManager) {
             Text("Connect BLE")
         }
 
+        // Simple connection status indicator
+        Spacer(Modifier.height(8.dp))
+        Text("Bluetooth status: $connectionText")
+
         if (showScanDialog) {
             ScanDialog(context, bleManager) { showScanDialog = false }
         }
 
         Spacer(Modifier.height(16.dp))
 
-        Text("Dynamic Entry Logger", style = MaterialTheme.typography.headlineSmall)
+        Text("Live CSV Viewer", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(16.dp))
+
+        Text("Rows received: ${batches.size}")
+        Spacer(Modifier.height(8.dp))
 
         // Table headers
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -126,7 +172,7 @@ fun DynamicColumnCounterScreen(bleManager: BLEManager) {
                     },
                     textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
                     modifier = Modifier
-                        .width(100.dp)
+                        .width(80.dp)
                         .padding(4.dp)
                 )
             }
@@ -141,11 +187,14 @@ fun DynamicColumnCounterScreen(bleManager: BLEManager) {
         ) {
             items(batches) { entry ->
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    val timestampStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(entry.timestamp))
+                    val timestampStr = SimpleDateFormat(
+                        "HH:mm:ss",
+                        Locale.getDefault()
+                    ).format(Date(entry.timestamp))
                     Text(timestampStr, modifier = Modifier.width(100.dp))
 
-                    listOf(entry.c1, entry.c2, entry.c3).forEach {
-                        Text(it.toString(), modifier = Modifier.width(100.dp))
+                    listOf(entry.c1, entry.c2, entry.c3, entry.c4, entry.c5).forEach {
+                        Text(it.toString(), modifier = Modifier.width(80.dp))
                     }
                 }
             }
@@ -166,7 +215,11 @@ fun DynamicColumnCounterScreen(bleManager: BLEManager) {
             Button(
                 onClick = {
                     val csv = batchesToCsv(batches, headers)
-                    exportCsvToDevice(context, "batches_${System.currentTimeMillis()}.csv", csv)
+                    exportCsvToDevice(
+                        context,
+                        "batches_${System.currentTimeMillis()}.csv",
+                        csv
+                    )
                 },
                 enabled = batches.isNotEmpty()
             ) {
@@ -185,10 +238,12 @@ fun DynamicColumnCounterScreen(bleManager: BLEManager) {
     }
 }
 
-// --- CSV Helpers ---
+// --- CSV Helpers (unchanged) ---
 fun batchesToCsv(batches: List<BatchEntry>, headers: List<String>): String {
     val headerRow = "Timestamp," + headers.joinToString(",")
-    val rows = batches.joinToString("\n") { "${it.timestamp},${it.c1},${it.c2},${it.c3}" }
+    val rows = batches.joinToString("\n") {
+        "${it.timestamp},${it.c1},${it.c2},${it.c3},${it.c4},${it.c5}"
+    }
     return "$headerRow\n$rows"
 }
 
@@ -219,8 +274,12 @@ fun exportCsvViaShare(context: Context, batches: List<BatchEntry>, headers: List
         addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
-    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share CSV"))
+    context.startActivity(
+        android.content.Intent.createChooser(
+            shareIntent,
+            "Share CSV"
+        )
+    )
 }
-
 
 

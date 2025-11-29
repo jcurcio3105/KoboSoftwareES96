@@ -1,33 +1,47 @@
 package com.example.individualcounter
 
 /**
- * Data class representing a single batch entry (row)
+ * Represents one row of data coming from the Arduino.
+ *
+ * Columns:
+ *  c1..c5  = button columns sent from the device
+ *  timestamp = time received by ANDROID (System.currentTimeMillis)
  */
 data class BatchEntry(
     val c1: Int,
     val c2: Int,
     val c3: Int,
+    val c4: Int,
+    val c5: Int,
     val timestamp: Long
 ) {
     companion object {
 
         /**
-         * Parses a CSV line into a BatchEntry.
-         * Will try to extract the first 4 numeric values in order.
-         * Returns null if it cannot find 4 numeric values.
+         * Parses a CSV line from the Arduino.
+         * We expect at least 5 columns:
+         *   c1,c2,c3,c4,c5,timestamp_ms,bt_sent,sd_sent
+         *
+         * We IGNORE the Arduino timestamp and generate our own.
          */
         fun fromCSVLine(line: String): BatchEntry? {
             val parts = line.split(",")
-            if (parts.size < 4) return null
+
+            // Must have at least 5 values
+            if (parts.size < 5) return null
 
             return try {
-                val c1 = parts[0].toInt()
-                val c2 = parts[1].toInt()
-                val c3 = parts[2].toInt()
-                val ts = parts[3].toLong() // only take the Arduino timestamp
+                val c1 = parts[0].trim().toInt()
+                val c2 = parts[1].trim().toInt()
+                val c3 = parts[2].trim().toInt()
+                val c4 = parts[3].trim().toInt()
+                val c5 = parts[4].trim().toInt()
 
-                // Use phone timestamp instead
-                BatchEntry(c1, c2, c3, System.currentTimeMillis())
+                // Always use ANDROID timestamp, ignore Arduino millis()
+                val phoneTimestamp = System.currentTimeMillis()
+
+                BatchEntry(c1, c2, c3, c4, c5, phoneTimestamp)
+
             } catch (e: Exception) {
                 null
             }
@@ -35,10 +49,9 @@ data class BatchEntry(
     }
 
     /**
-     * Converts this BatchEntry into a CSV line.
+     * CSV-friendly row for export/sharing.
+     * Format: Timestamp,c1,c2,c3,c4,c5
      */
-    fun toCSVLine(): String = "$c1,$c2,$c3,$timestamp"
+    fun toCSVLine(): String = "$timestamp,$c1,$c2,$c3,$c4,$c5"
 }
-
-
 

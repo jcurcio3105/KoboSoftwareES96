@@ -9,6 +9,8 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import java.util.*
 import kotlin.collections.ArrayList
 
@@ -21,9 +23,12 @@ class BLEManager(private val context: Context) {
         private const val TAG = "BLEManager"
 
         // BLE UART service and characteristic UUIDs
-        val UART_SERVICE_UUID: UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
-        val TX_CHAR_UUID: UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E") // Peripheral → Phone
-        val RX_CHAR_UUID: UUID = UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E") // Phone → Peripheral
+        val UART_SERVICE_UUID: UUID =
+            UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+        val TX_CHAR_UUID: UUID =
+            UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E") // Peripheral → Phone
+        val RX_CHAR_UUID: UUID =
+            UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E") // Phone → Peripheral
 
         private const val BATCH_SIZE = 1
     }
@@ -37,9 +42,19 @@ class BLEManager(private val context: Context) {
 
     private val tempBatch = mutableListOf<BatchEntry>()
 
-    private val _incomingBatch = MutableSharedFlow<List<BatchEntry>>(replay = 0)
+    // IMPORTANT: replay = 1 so the latest batch is delivered
+    // even if the collector started slightly later.
+    private val _incomingBatch = MutableSharedFlow<List<BatchEntry>>(
+        replay = 1,
+        extraBufferCapacity = 64
+    )
     val incomingBatch: SharedFlow<List<BatchEntry>>
         get() = _incomingBatch
+
+    // --- Connection state for UI ---
+    private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
+    val connectionState: StateFlow<ConnectionState>
+        get() = _connectionState
 
     // ---------- Connect ----------
     fun connectToDevice(device: BluetoothDevice) {
@@ -54,6 +69,8 @@ class BLEManager(private val context: Context) {
             }
         }
 
+        _connectionState.value = ConnectionState.CONNECTING
+
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         } else {
@@ -67,6 +84,7 @@ class BLEManager(private val context: Context) {
         gatt = null
         txChar = null
         tempBatch.clear()
+        _connectionState.value = ConnectionState.DISCONNECTED
         Log.d(TAG, "Disconnected and cleared state")
     }
 
@@ -85,9 +103,11 @@ class BLEManager(private val context: Context) {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.d(TAG, "Connected → discovering services")
+                _connectionState.value = ConnectionState.CONNECTED
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.d(TAG, "Disconnected")
+                _connectionState.value = ConnectionState.DISCONNECTED
             }
         }
 
@@ -141,29 +161,34 @@ class BLEManager(private val context: Context) {
 
     // ---------- Handle incoming row ----------
     private fun handleIncomingLine(line: String) {
-        // Parse the line using the updated fromCSVLine
         val entry = BatchEntry.fromCSVLine(line)
 
         if (entry != null) {
-            // Add to temporary batch
             tempBatch.add(entry)
 
-            // Log the parsed row for debugging
             Log.d(
-                TAG, "Parsed row: c1=${entry.c1}, c2=${entry.c2}, c3=${entry.c3}, ts=${entry.timestamp}"
+                TAG,
+                "Parsed row: c1=${entry.c1}, c2=${entry.c2}, c3=${entry.c3}, c4=${entry.c4}, c5=${entry.c5}, ts=${entry.timestamp}"
             )
 
-            // Emit batch if we reach batch size
             if (tempBatch.size >= BATCH_SIZE) {
                 val batchCopy = ArrayList(tempBatch)
                 tempBatch.clear()
-                _incomingBatch.tryEmit(batchCopy)
-                Log.d(TAG, "Emitted batch of size ${batchCopy.size}")
+                val success = _incomingBatch.tryEmit(batchCopy)
+                Log.d(TAG, "Emitted batch of size ${batchCopy.size}, tryEmit=$success")
             }
         } else {
             Log.w(TAG, "Failed to parse line into BatchEntry: '$line'")
         }
     }
 }
+
+// Simple connection state enum for UI
+enum class ConnectionState {
+    DISCONNECTED,
+    CONNECTING,
+    CONNECTED
+}
+
 
 
