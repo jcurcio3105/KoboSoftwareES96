@@ -2,7 +2,7 @@ import os
 import csv
 import uuid
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import xml.etree.ElementTree as ET
 import requests
@@ -14,8 +14,8 @@ import time
 CSV_PATH = "data.csv"                           # your CSV path
 OUTPUT_ROOT = "instances"                       # folder layout root
 KOBOKIT_BASE = "https://kc.kobotoolbox.org"    # or https://kc-eu.kobotoolbox.org
-USERNAME = "nmarinaccio"                      # <-- fill in
-PASSWORD = "Kobo1923???"                      # <-- fill in
+USERNAME = "nmarinaccio"                       # <-- fill in
+PASSWORD = "Kobo1923???"                       # <-- fill in
 SUBMIT_URL = f"{KOBOKIT_BASE}/submission"
 
 # Form constants (from your accepted XML)
@@ -36,9 +36,17 @@ NSMAP = {
 }
 
 # CSV column names (your sample had spaces; we normalize and handle variants)
-CSV_COL_TIME = "time"          # will match case-insensitively after strip
-CSV_COL_RED = "red button"     # trailing spaces are OK (we strip)
+CSV_COL_TIME = "time"          # now contains millisecond values
+CSV_COL_RED = "red button"
 CSV_COL_GREEN = "green button"
+
+# -----------------------
+# NEW: Start datetime config
+# -----------------------
+# Local date/time for the first logical timestamp
+START_DATETIME_STR = "10/22/2025 11:42:32"   # change as needed
+START_TIMEZONE = "America/New_York"          # change if needed
+
 
 # -----------------------
 # Helpers
@@ -48,14 +56,6 @@ def normalize_header(h):
     """normalize CSV header: strip spaces, lower-case"""
     return h.strip().lower()
 
-def parse_csv_time_to_iso8601_local(s):
-    """
-    Input like '10/22/2025 11:42:32' (MM/DD/YYYY HH:MM:SS, local).
-    Output ISO8601 with America/New_York offset, e.g. '2025-10-22T11:42:32-04:00'.
-    """
-    dt_naive = datetime.strptime(s.strip(), "%m/%d/%Y %H:%M:%S")
-    dt_local = dt_naive.replace(tzinfo=ZoneInfo("America/New_York"))
-    return dt_local.isoformat(timespec="seconds")
 
 def build_instance_xml(start_iso, end_iso, red_val, green_val, instance_uuid_str):
     """
@@ -107,12 +107,14 @@ def build_instance_xml(start_iso, end_iso, red_val, green_val, instance_uuid_str
     xml_bytes = ET.tostring(root, encoding="UTF-8", xml_declaration=True, method="xml")
     return xml_bytes
 
+
 def submit_xml(session, xml_bytes, display_name="submission.xml"):
     files = {
         "xml_submission_file": (display_name, io.BytesIO(xml_bytes), "text/xml"),
     }
     r = session.post(SUBMIT_URL, files=files, timeout=60)
     return r
+
 
 # -----------------------
 # Main flow
@@ -128,6 +130,11 @@ def main():
         "User-Agent": "kobo-bulk-uploader/2.0",
         "X-OpenRosa-Version": "1.0",
     })
+
+    # Parse the start datetime once
+    start_dt = datetime.strptime(START_DATETIME_STR, "%m/%d/%Y %H:%M:%S").replace(
+        tzinfo=ZoneInfo(START_TIMEZONE)
+    )
 
     # Read CSV
     with open(CSV_PATH, "r", newline="", encoding="utf-8-sig") as f:
@@ -153,6 +160,22 @@ def main():
             f"Found: {sorted(normalized_fieldnames)}"
         )
 
+    # Find the base millisecond timestamp (first valid row)
+    base_ms = None
+    for row in rows:
+        time_str = row[CSV_COL_TIME]
+        if not time_str:
+            continue
+        try:
+            ms_val = int(time_str)
+        except ValueError:
+            continue
+        base_ms = ms_val
+        break
+
+    if base_ms is None:
+        raise ValueError("No valid millisecond timestamps found in CSV 'time' column.")
+
     # Iterate rows, create XMLs, write to folder structure, and submit
     for idx, row in enumerate(rows, start=1):
         time_str = row[CSV_COL_TIME]
@@ -160,14 +183,23 @@ def main():
         green_val = row[CSV_COL_GREEN]
 
         if not time_str:
-            print(f"[SKIP] Row {idx}: missing Time")
+            print(f"[SKIP] Row {idx}: missing Time (ms)")
             continue
 
         try:
-            iso_time = parse_csv_time_to_iso8601_local(time_str)
-        except Exception as e:
+            ms_val = int(time_str)
+        except ValueError as e:
             print(f"[SKIP] Row {idx}: bad Time '{time_str}': {e}")
             continue
+
+        elapsed_ms = ms_val - base_ms
+        if elapsed_ms < 0:
+            print(f"[WARN] Row {idx}: timestamp {ms_val} < base {base_ms}, clamping to 0.")
+            elapsed_ms = 0
+
+        # Calculate the actual datetime from start_dt + elapsed_ms
+        dt_with_offset = start_dt + timedelta(milliseconds=elapsed_ms)
+        iso_time = dt_with_offset.isoformat(timespec="seconds")
 
         # unique instanceID
         inst_uuid = str(uuid.uuid4())
@@ -197,6 +229,7 @@ def main():
 
         # Be polite to the server
         time.sleep(0.2)
+
 
 if __name__ == "__main__":
     main()
