@@ -4,7 +4,7 @@ import csv
 import uuid
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import xml.etree.ElementTree as ET
 import requests
@@ -48,15 +48,24 @@ EXCLUDED_NAMES = {
 }
 
 # -----------------------
+# NEW: Start datetime config
+# -----------------------
+# Local date/time corresponding to the first logical timestamp
+# Adjust these to whatever you want to anchor the milliseconds to.
+START_DATETIME_STR = "10/22/2025 11:42:32"   # MM/DD/YYYY HH:MM:SS
+START_TIMEZONE = "America/New_York"
+
+# -----------------------
 # Helpers
 # -----------------------
 def normalize_header(h):
     return (h or "").strip().lower()
 
-def parse_csv_time_to_iso8601_local(s):
-    dt_naive = datetime.strptime(s.strip(), "%m/%d/%Y %H:%M:%S")
-    dt_local = dt_naive.replace(tzinfo=ZoneInfo("America/New_York"))
-    return dt_local.isoformat(timespec="seconds")
+# NOTE: old absolute-timestamp parser removed; we now use milliseconds
+# def parse_csv_time_to_iso8601_local(s):
+#     dt_naive = datetime.strptime(s.strip(), "%m/%d/%Y %H:%M:%S")
+#     dt_local = dt_naive.replace(tzinfo=ZoneInfo("America/New_York"))
+#     return dt_local.isoformat(timespec="seconds")
 
 def derive_kc_base_from_link(link: str) -> str:
     host = ""
@@ -223,6 +232,11 @@ def run_upload_dynamic(username, password, survey_link, csv_path, output_root, m
         "X-OpenRosa-Version": "1.0",
     })
 
+    # Parse the anchor start datetime once
+    start_dt = datetime.strptime(START_DATETIME_STR, "%m/%d/%Y %H:%M:%S").replace(
+        tzinfo=ZoneInfo(START_TIMEZONE)
+    )
+
     with open(csv_path, "r", newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         if not reader.fieldnames:
@@ -243,22 +257,49 @@ def run_upload_dynamic(username, password, survey_link, csv_path, output_root, m
                 norm[header_map[k]] = (v or "").strip()
             rows.append(norm)
 
+    # Determine base_ms from the first row with a valid millisecond timestamp
+    base_ms = None
+    for row in rows:
+        time_str = row.get(CSV_COL_TIME, "")
+        if not time_str:
+            continue
+        try:
+            ms_val = int(time_str)
+        except ValueError:
+            continue
+        base_ms = ms_val
+        break
+
+    if base_ms is None:
+        raise ValueError("No valid millisecond timestamps found in CSV 'time' column.")
+
     results = []
     for idx, row in enumerate(rows, start=1):
         time_str = row.get(CSV_COL_TIME, "")
         if not time_str:
-            msg = f"[SKIP] Row {idx}: missing Time"
+            msg = f"[SKIP] Row {idx}: missing Time (ms)"
             print(msg)
             results.append(msg)
             continue
 
         try:
-            iso_time = parse_csv_time_to_iso8601_local(time_str)
-        except Exception as e:
+            ms_val = int(time_str)
+        except ValueError as e:
             msg = f"[SKIP] Row {idx}: bad Time '{time_str}': {e}"
             print(msg)
             results.append(msg)
             continue
+
+        elapsed_ms = ms_val - base_ms
+        if elapsed_ms < 0:
+            # If timestamps go backwards, clamp to 0 but warn
+            msg_warn = f"[WARN] Row {idx}: timestamp {ms_val} < base {base_ms}, clamping elapsed_ms to 0."
+            print(msg_warn)
+            results.append(msg_warn)
+            elapsed_ms = 0
+
+        dt_with_offset = start_dt + timedelta(milliseconds=elapsed_ms)
+        iso_time = dt_with_offset.isoformat(timespec="seconds")
 
         mapped_values = {}
         for form_field, csv_button in mapping.items():
