@@ -1,102 +1,138 @@
-# KoboSoftwareES96
 # KoboClicker
+Firmware • Android App • CSV Uploader
 
-KoboClicker is a Python tool that simulates button presses and uploads the resulting data to KoboToolbox, a platform used for humanitarian and field data collection. It represents the data handling component of a planned clicker device system. The script converts CSV data into Kobo-compatible XML submissions and uploads them for testing and integration.
+KoboClicker is a complete hardware + software toolkit for rapid individual counting, data logging, and CSV export to KoboToolbox. The project contains **three major components**:
 
-## Features
-- Simulates button click events  
-- Generates Kobo-compatible XML form instances  
-- Uploads data to KoboToolbox  
-- Serves as the data bridge for future hardware integration  
+1. **Arduino firmware** for the Seeed XIAO nRF52840 Sense Plus  
+2. **Android app** (Jetpack Compose) for BLE table display, session management, and CSV export  
+3. **Uploader application** (Windows `.exe` + macOS `.dmg`) for uploading CSV data into KoboToolbox
 
-## Requirements
-- Python 3.1+  
-- requests library  
+---
 
-Install dependencies manually (optional if you use `install.sh`):
-```bash
-pip install requests
+## 1. Arduino Firmware (Seeed XIAO nRF52840 Sense Plus)
+
+The KoboClicker device runs on the **Seeed XIAO nRF52840 Sense Plus**. Follow these steps to compile and upload the firmware.
+
+### A. Install Arduino IDE  
+Download **Arduino IDE 2.x** from the official Arduino website.
+
+### B. Install Board Support  
+Navigate to:
+
+```
+Tools → Board → Boards Manager
 ```
 
-## Setup (Recommended)
+Search for:
 
-Clone the repo, make the installer executable, and run it:
-```bash
-chmod +x install.sh
-./install.sh
+```
+Seeed nRF52 mbed-enabled Boards
 ```
 
-This creates a local virtual environment `.venv/` and installs required packages (`requests` and `backports.zoneinfo` if needed).
+Install the package, then select:
 
-## Usage
-
-Activate the environment:
-```bash
-source .venv/bin/activate
+```
+Tools → Board → Seeed nRF52 mbed-enabled Boards → XIAO nRF52840 Sense Plus (No Updates)
 ```
 
-Move into the working directory:
-```bash
-cd csv_to_kobo
+### C. Install Required Libraries  
+Open:
+
+```
+Tools → Manage Libraries…
 ```
 
-Prepare or edit `data.csv` (use the exact column names: `time`, `red button`, `green button`).
+Install:
 
-Run the uploader:
-```bash
-python uploadInstances.py
+- ArduinoBLE  
+- SD or SdFat  
+- SPI  
+
+### D. Uploading the Firmware  
+1. Connect via USB-C  
+2. Select the board and port  
+3. Open the `.ino`  
+4. Click **Verify** then **Upload**
+
+### E. Firmware Behavior  
+- Reads 8 buttons via resistor ladders  
+- Generates rows (c1–c5)  
+- NEXT / ERROR / POWER logic  
+- BLE UART data output  
+- SD card logging with batching  
+- File rotation on long POWER press  
+- Advertises as `XIAO-Buttons`
+
+---
+
+## 2. Android App (Jetpack Compose)
+
+The Android app receives BLE data, displays rows, manages sessions, and exports CSVs.
+
+### Files Required  
+Place these in:
+
+```
+app/src/main/java/com/example/individualcounter/
 ```
 
-## Configuration
+- MainActivity.kt  
+- BLEManager.kt  
+- BatchEntry.kt  
+- ScanDialog.kt  
 
-Edit the top of `csv_to_kobo/uploadInstances.py`:
-```python
-# -----------------------
-# CONFIGURE THESE
-# -----------------------
-CSV_PATH = "data.csv"                           # your CSV path
-OUTPUT_ROOT = "instances"                       # output folder for XMLs
-KOBOKIT_BASE = "https://kc.kobotoolbox.org"    # or https://kc-eu.kobotoolbox.org
-USERNAME = "your_username_here"
-PASSWORD = "your_password_here"
-SUBMIT_URL = f"{KOBOKIT_BASE}/submission"
-```
+### App Features  
+- Live row table  
+- Editable column headers  
+- Multi-file session management  
+- BLE scanning + connection  
+- CSV export to Downloads  
+- CSV sharing  
+- Undo last row & clear data  
 
-Optional: use environment variables instead of hardcoding:
-```bash
-export KOBO_BASE_URL="https://kc.kobotoolbox.org"
-export KOBO_USERNAME="your_username"
-export KOBO_PASSWORD="your_password"
-```
+---
 
-## Project Files
-- `install.sh` — creates `.venv/` and installs dependencies  
-- `csv_to_kobo/uploadInstances.py` — builds and uploads XML instances to KoboToolbox  
-- `csv_to_kobo/data.csv` — sample CSV input  
-- `csv_to_kobo/instances/` — generated XML submissions (ignored by git)  
+## 3. Uploader Application (Windows & macOS)
 
-## Common Commands
-```bash
-# recreate/refresh environment
-./install.sh
+The repository includes an **Uploader ZIP** containing:
 
-# activate / deactivate
-source .venv/bin/activate
-deactivate
+- A **Windows `.exe`**  
+- A **macOS `.dmg`**
 
-# quick dependency test
-python -c "import requests; print('requests OK')"
-```
+### Purpose  
+This tool uploads CSV files produced by KoboClicker into **KoboToolbox**.
 
-## .gitignore (recommended)
-At the repository root:
-```
-.venv/
-__pycache__/
-*.pyc
-csv_to_kobo/instances/
-```
+### Requirements  
+- The CSV file must already be on your computer  
+  (transfer via microSD from the KoboClicker device)
 
-## Notes
-This version includes only the Python data upload component.  
-Future versions will integrate the Android app and microcontroller firmware for full device functionality.
+### How to Use  
+1. Download and unzip `uploader.zip`  
+2. Run the `.exe` (Windows) or `.dmg` (macOS)  
+3. Follow the on-screen prompts  
+4. Select your CSV  
+5. The uploader will handle the KoboToolbox submission
+
+---
+
+## Summary
+
+### Arduino  
+- Use **Seeed nRF52 mbed-enabled Boards → XIAO nRF52840 Sense Plus (No Updates)**  
+- Install ArduinoBLE + SD libraries  
+- Upload `.ino` → device broadcasts BLE UART  
+
+### Android  
+- Add 4 Kotlin files to `com.example.individualcounter`  
+- Build in Android Studio  
+- Connect to `XIAO-Buttons` over BLE  
+- Manage sessions + export CSVs  
+
+### Uploader  
+- Run `.exe` or `.dmg`  
+- Select CSV → auto-upload to KoboToolbox  
+
+---
+
+## License
+ES96 License
